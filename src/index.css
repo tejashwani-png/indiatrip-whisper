@@ -48,6 +48,14 @@ All colors MUST be HSL.
     --glass-bg: 240 10% 10% / 0.4;
     --glass-border: 0 0% 100% / 0.1;
 
+    /* Advanced gradients */
+    --gradient-radial: radial-gradient(circle at center, hsl(var(--primary) / 0.2), transparent 70%);
+    --gradient-hero: linear-gradient(135deg, hsl(var(--primary) / 0.1), hsl(var(--secondary) / 0.1));
+    
+    /* Shadows */
+    --shadow-glow: 0 0 60px hsl(var(--primary) / 0.4);
+    --shadow-card: 0 20px 60px -10px hsl(0 0% 0% / 0.3);
+
     --sidebar-background: 240 10% 6%;
     --sidebar-foreground: 0 0% 98%;
     --sidebar-primary: 280 100% 70%;
@@ -104,8 +112,11 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    @apply bg-background text-foreground font-sans;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display;
   }
 }
 

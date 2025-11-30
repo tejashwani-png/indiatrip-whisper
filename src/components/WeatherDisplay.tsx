@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Cloud, Sun, CloudRain, Wind, Droplets, Eye, ArrowLeft } from "lucide-react";
+import { Cloud, Sun, CloudRain, Wind, Droplets, Eye, ArrowLeft, Search } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { indianCities } from "@/data/travelData";
 
 interface WeatherData {
   city: string;
@@ -13,15 +14,25 @@ interface WeatherData {
   visibility: number;
 }
 
-const mockWeatherData: Record<string, WeatherData> = {
-  "delhi": { city: "Delhi", temp: 28, condition: "Sunny", humidity: 45, windSpeed: 12, visibility: 10 },
-  "mumbai": { city: "Mumbai", temp: 32, condition: "Partly Cloudy", humidity: 75, windSpeed: 15, visibility: 8 },
-  "bangalore": { city: "Bangalore", temp: 25, condition: "Pleasant", humidity: 60, windSpeed: 8, visibility: 10 },
-  "chennai": { city: "Chennai", temp: 34, condition: "Hot", humidity: 80, windSpeed: 10, visibility: 9 },
-  "kolkata": { city: "Kolkata", temp: 30, condition: "Humid", humidity: 85, windSpeed: 11, visibility: 7 },
-  "jaipur": { city: "Jaipur", temp: 35, condition: "Hot & Dry", humidity: 30, windSpeed: 14, visibility: 10 },
-  "goa": { city: "Goa", temp: 29, condition: "Breezy", humidity: 70, windSpeed: 18, visibility: 10 },
-  "kochi": { city: "Kochi", temp: 27, condition: "Rainy", humidity: 90, windSpeed: 9, visibility: 6 }
+// Generate mock weather for any Indian city
+const generateWeatherData = (cityName: string): WeatherData => {
+  // Use city name to generate consistent but varied data
+  const hash = cityName.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  
+  const conditions = ["Sunny", "Partly Cloudy", "Pleasant", "Humid", "Rainy", "Hot", "Breezy", "Cool"];
+  const baseTemp = 22 + (hash % 15); // 22-37°C
+  const humidity = 40 + (hash % 50); // 40-90%
+  const windSpeed = 8 + (hash % 15); // 8-23 km/h
+  const visibility = 6 + (hash % 5); // 6-11 km
+  
+  return {
+    city: cityName,
+    temp: baseTemp,
+    condition: conditions[hash % conditions.length],
+    humidity,
+    windSpeed,
+    visibility
+  };
 };
 
 const getWeatherIcon = (condition: string) => {
@@ -31,26 +42,42 @@ const getWeatherIcon = (condition: string) => {
 };
 
 export const WeatherDisplay = ({ onBack }: { onBack: () => void }) => {
+  const [searchTerm, setSearchTerm] = useState("");
   const [city, setCity] = useState("");
   const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
 
-  const handleSearch = () => {
-    const cityKey = city.toLowerCase();
-    const data = mockWeatherData[cityKey];
-    if (data) {
-      setWeather(data);
+  const handleSearch = (cityName?: string) => {
+    const searchCity = cityName || city;
+    if (!searchCity) return;
+    
+    const weatherData = generateWeatherData(searchCity);
+    setWeather(weatherData);
+    setSuggestions([]);
+    setSearchTerm("");
+  };
+
+  const handleInputChange = (value: string) => {
+    setSearchTerm(value);
+    setCity(value);
+    
+    if (value.length > 1) {
+      const filtered = indianCities.filter(c => 
+        c.toLowerCase().includes(value.toLowerCase())
+      ).slice(0, 10);
+      setSuggestions(filtered);
     } else {
-      // Default weather for unknown cities
-      setWeather({
-        city: city,
-        temp: 28,
-        condition: "Pleasant",
-        humidity: 60,
-        windSpeed: 10,
-        visibility: 9
-      });
+      setSuggestions([]);
     }
   };
+
+  const selectCity = (cityName: string) => {
+    setCity(cityName);
+    setSearchTerm(cityName);
+    handleSearch(cityName);
+  };
+
+  const popularCities = ["Delhi", "Mumbai", "Bangalore", "Chennai", "Kolkata", "Hyderabad", "Pune", "Ahmedabad"];
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
@@ -64,28 +91,52 @@ export const WeatherDisplay = ({ onBack }: { onBack: () => void }) => {
           >
             <ArrowLeft className="w-5 h-5" />
           </Button>
-          <h1 className="text-4xl md:text-5xl font-bold gradient-text">
-            Weather Forecast
-          </h1>
+          <div className="text-center">
+            <h1 className="text-4xl md:text-5xl font-bold gradient-text">
+              Weather Forecast
+            </h1>
+            <p className="text-muted-foreground mt-2">700+ Cities, Districts & Towns</p>
+          </div>
         </div>
 
         {/* Search */}
-        <Card className="glass-card border-primary/20 p-6 mb-8">
+        <Card className="glass-card border-primary/20 p-6 mb-8 relative">
           <div className="flex gap-2">
-            <Input
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              onKeyPress={(e) => e.key === "Enter" && handleSearch()}
-              placeholder="Enter city name (e.g., Delhi, Mumbai, Bangalore...)"
-              className="flex-1 glass-card border-primary/30 focus:border-primary"
-            />
+            <div className="relative flex-1">
+              <Input
+                value={searchTerm}
+                onChange={(e) => handleInputChange(e.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleSearch()}
+                placeholder="Search any Indian city, district or town..."
+                className="glass-card border-primary/30 focus:border-primary"
+              />
+              
+              {/* Suggestions Dropdown */}
+              {suggestions.length > 0 && (
+                <Card className="absolute top-full left-0 right-0 mt-2 z-10 glass-card border-primary/20 max-h-60 overflow-y-auto">
+                  {suggestions.map((suggestion, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => selectCity(suggestion)}
+                      className="w-full text-left px-4 py-2 hover:bg-primary/10 transition-colors border-b border-border/50 last:border-0"
+                    >
+                      <Search className="w-4 h-4 inline mr-2 text-muted-foreground" />
+                      {suggestion}
+                    </button>
+                  ))}
+                </Card>
+              )}
+            </div>
             <Button
-              onClick={handleSearch}
+              onClick={() => handleSearch()}
               className="bg-gradient-to-r from-primary to-accent hover:opacity-90 neon-glow"
             >
               Search
             </Button>
           </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Try: {indianCities.slice(0, 5).join(", ")}, and 700+ more locations
+          </p>
         </Card>
 
         {/* Weather Display */}
@@ -138,18 +189,15 @@ export const WeatherDisplay = ({ onBack }: { onBack: () => void }) => {
             <Card className="glass-card border-primary/20 p-6">
               <h3 className="text-lg font-semibold mb-4">Popular Cities</h3>
               <div className="flex flex-wrap gap-2">
-                {Object.keys(mockWeatherData).map((cityKey) => (
+                {popularCities.map((cityName) => (
                   <Button
-                    key={cityKey}
+                    key={cityName}
                     variant="outline"
                     size="sm"
-                    onClick={() => {
-                      setCity(cityKey);
-                      setWeather(mockWeatherData[cityKey]);
-                    }}
+                    onClick={() => selectCity(cityName)}
                     className="glass-card border-primary/30 hover:border-primary"
                   >
-                    {mockWeatherData[cityKey].city}
+                    {cityName}
                   </Button>
                 ))}
               </div>
@@ -160,9 +208,12 @@ export const WeatherDisplay = ({ onBack }: { onBack: () => void }) => {
             <div className="animate-float inline-block mb-4 text-6xl">
               🌤️
             </div>
-            <h3 className="text-2xl font-semibold mb-2">Search for a City</h3>
-            <p className="text-muted-foreground">
-              Enter a city name to view current weather conditions
+            <h3 className="text-2xl font-semibold mb-2">Search for Any City</h3>
+            <p className="text-muted-foreground mb-4">
+              Enter any Indian city, district, or town to view weather conditions
+            </p>
+            <p className="text-sm text-muted-foreground">
+              🌟 Coverage: All 28 states, 8 UTs, 700+ districts & major towns
             </p>
           </Card>
         )}

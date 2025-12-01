@@ -14,7 +14,7 @@ interface Message {
 export const ChatInterface = ({ onBack }: { onBack: () => void }) => {
   const [messages, setMessages] = useState<Message[]>([
     {
-      text: "🙏 Namaste! I'm your AI Travel Guide for India. Ask me about any state, attractions, food, culture, or travel plans!",
+      text: "🙏 Namaste! I'm BharatExplore Bot - your AI pathfinder for India. Ask me about any state, city, town, attractions, food, culture, or travel plans!",
       isBot: true,
       timestamp: new Date()
     }
@@ -71,8 +71,8 @@ export const ChatInterface = ({ onBack }: { onBack: () => void }) => {
             <Bot className="w-6 h-6 text-primary-foreground" />
           </div>
           <div>
-            <h2 className="text-xl font-bold gradient-text">India Travel AI</h2>
-            <p className="text-sm text-muted-foreground">Your personal travel assistant</p>
+            <h2 className="text-xl font-bold gradient-text">BharatExplore Bot</h2>
+            <p className="text-sm text-muted-foreground">Explore every corner of India with your personal AI pathfinder</p>
           </div>
         </div>
       </div>

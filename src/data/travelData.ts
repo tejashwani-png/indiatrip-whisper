@@ -4,6 +4,7 @@ export { indianCities, citiesByState } from './citiesData';
 
 // Import back for use in this file
 import { allIndianStates as indianStates } from './allStatesData';
+import { citiesByState } from './citiesData';
 
 // City travel data for trip companion feature
 interface CityData {
@@ -143,7 +144,45 @@ Have a great trip! 🎉`;
   
   // Check for greetings
   if (lowerQuery.match(/hello|hi|hey|namaste/)) {
-    return "🙏 Namaste! I'm your AI Travel Guide for India. Ask me about any state, attractions, food, culture, or plan trips between cities!";
+    return "🙏 Namaste! I'm BharatExplore Bot - your AI pathfinder for India. Ask me about any state, city, town, attractions, food, culture, or plan trips between cities!";
+  }
+
+  // Check for city-specific queries
+  let matchedCityName = "";
+  let matchedStateName = "";
+  
+  for (const [stateName, cities] of Object.entries(citiesByState)) {
+    const foundCity = cities.find(city => lowerQuery.includes(city.toLowerCase()));
+    if (foundCity) {
+      matchedCityName = foundCity;
+      matchedStateName = stateName;
+      break;
+    }
+  }
+  
+  if (matchedCityName && matchedStateName) {
+    const stateData = indianStates[matchedStateName];
+    
+    if (stateData) {
+      if (lowerQuery.includes("food") || lowerQuery.includes("eat") || lowerQuery.includes("cuisine")) {
+        return `🍛 **${matchedCityName} Cuisine:**\n\n${matchedCityName} is in ${stateData.name}, famous for: ${stateData.food.join(", ")}\n\nThese dishes are must-try when visiting ${matchedCityName}!`;
+      }
+      
+      if (lowerQuery.includes("attraction") || lowerQuery.includes("visit") || lowerQuery.includes("place") || lowerQuery.includes("see")) {
+        return `🏛️ **Top Attractions near ${matchedCityName}:**\n\n${stateData.attractions.slice(0, 5).map((a, i) => `${i + 1}. ${a}`).join("\n")}\n\nThese are popular destinations in ${stateData.name} region!`;
+      }
+      
+      if (lowerQuery.includes("culture") || lowerQuery.includes("tradition") || lowerQuery.includes("heritage")) {
+        return `🎭 **Culture of ${matchedCityName} (${stateData.name}):**\n\n${stateData.culture}`;
+      }
+      
+      if (lowerQuery.includes("weather") || lowerQuery.includes("when") || lowerQuery.includes("time")) {
+        return `🌤️ **Best Time to Visit ${matchedCityName}:**\n\n${stateData.bestTime}\n\nThis is when the weather is most pleasant for tourism!`;
+      }
+      
+      // General city info
+      return `✨ **${matchedCityName}** (${stateData.name})\n\n${matchedCityName} is a beautiful destination in ${stateData.name}.\n\n🏛️ **Nearby Attractions:**\n${stateData.attractions.slice(0, 3).join(", ")}\n\n🍛 **Regional Food:**\n${stateData.food.slice(0, 3).join(", ")}\n\n🌤️ **Best Time:**\n${stateData.bestTime}\n\n${stateData.culture.slice(0, 200)}...\n\nAsk me more about attractions, food, or culture!`;
+    }
   }
 
   // Check for state-specific queries
@@ -177,8 +216,8 @@ Have a great trip! 🎉`;
 
   // General queries
   if (lowerQuery.includes("help") || lowerQuery.includes("what can you do")) {
-    return "🤖 I can help you with:\n\n• Information about all 36 Indian states & UTs\n• Tourist attractions and places to visit\n• Local cuisine and food recommendations\n• Cultural insights and traditions\n• Travel itineraries and trip planning\n• **Plan trips between cities** (Bus/Train/Flight costs, hotels, restaurants)\n• Best time to visit\n• Weather information\n\nTry: 'Plan my trip from Mumbai to Goa' or 'Tell me about Sikkim'";
+    return "🤖 I can help you with:\n\n• Information about all 36 Indian states & UTs\n• Details about 700+ Indian cities, districts & towns\n• Tourist attractions and places to visit\n• Local cuisine and food recommendations\n• Cultural insights and traditions\n• Travel itineraries and trip planning\n• **Plan trips between cities** (Bus/Train/Flight costs, hotels, restaurants)\n• Best time to visit\n• Weather information\n\nTry: 'Tell me about Mumbai', 'Plan my trip from Mumbai to Goa', or 'What to see in Kerala'";
   }
 
-  return "🤔 I'd love to help! Try asking me about:\n\n• Any Indian state or UT (e.g., 'Tell me about Kerala' or 'About Ladakh')\n• Attractions (e.g., 'What to see in Rajasthan?')\n• Food (e.g., 'What food to try in Punjab?')\n• **Trip planning** (e.g., 'Plan trip from Pune to Kochi')\n• Travel between cities (e.g., 'From Mumbai to Goa')\n\nI have information about all 36 states & union territories of India!";
+  return "🤔 I'd love to help! Try asking me about:\n\n• Any Indian city, district or town (e.g., 'Tell me about Mumbai', 'About Udupi')\n• Any Indian state or UT (e.g., 'Tell me about Kerala', 'About Ladakh')\n• Attractions (e.g., 'What to see in Rajasthan?')\n• Food (e.g., 'Best food in Jaipur')\n• **Trip planning** (e.g., 'Plan trip from Pune to Kochi')\n• Travel between cities (e.g., 'From Mumbai to Goa')\n\nI have information about all 36 states and 700+ cities across India!";
 };

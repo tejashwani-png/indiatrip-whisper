@@ -1,4 +1,43 @@
 import { pipeline } from '@huggingface/transformers';
+import { correctQuery, normalizeQuery, extractDays } from './grammarCorrection';
+
+// Comprehensive list of Indian locations for entity extraction
+const allLocations = [
+  // Metro cities
+  'mumbai', 'delhi', 'bangalore', 'bengaluru', 'chennai', 'kolkata', 'hyderabad', 
+  'pune', 'ahmedabad', 'jaipur', 'kochi', 'surat',
+  // States
+  'goa', 'kerala', 'rajasthan', 'maharashtra', 'karnataka', 'tamil nadu', 
+  'west bengal', 'telangana', 'gujarat', 'madhya pradesh', 'uttar pradesh',
+  'odisha', 'orissa', 'assam', 'punjab', 'haryana', 'himachal pradesh',
+  'uttarakhand', 'jharkhand', 'chhattisgarh', 'bihar', 'andhra pradesh',
+  'sikkim', 'meghalaya', 'tripura', 'mizoram', 'manipur', 'nagaland',
+  'arunachal pradesh',
+  // Union Territories
+  'jammu and kashmir', 'kashmir', 'ladakh', 'puducherry', 'pondicherry',
+  'andaman and nicobar', 'andaman', 'lakshadweep', 'chandigarh',
+  // Popular destinations
+  'manali', 'shimla', 'rishikesh', 'haridwar', 'varanasi', 'agra', 
+  'udaipur', 'jodhpur', 'jaisalmer', 'darjeeling', 'gangtok', 
+  'munnar', 'alleppey', 'ooty', 'kodaikanal', 'mysore', 'hampi',
+  'khajuraho', 'bodh gaya', 'ajmer', 'pushkar', 'mount abu',
+  'nainital', 'mussoorie', 'coorg', 'wayanad', 'kovalam',
+  'puri', 'konark', 'bhubaneswar', 'cuttack', 'amritsar',
+  'dharamshala', 'mcleodganj', 'kasol', 'spiti', 'leh', 'pangong',
+  'srinagar', 'gulmarg', 'pahalgam', 'sonmarg',
+  'visakhapatnam', 'vizag', 'tirupati', 'madurai', 'trichy',
+  'rameswaram', 'kanyakumari', 'coimbatore', 'thanjavur',
+  'pondicherry', 'mahabalipuram', 'chidambaram',
+  'guwahati', 'kaziranga', 'shillong', 'cherrapunji', 'tawang',
+  'aizawl', 'imphal', 'kohima', 'agartala',
+  'ranchi', 'jamshedpur', 'patna', 'raipur', 'bhopal', 'indore',
+  'gwalior', 'ujjain', 'sanchi', 'orchha', 'pachmarhi',
+  'lucknow', 'ayodhya', 'mathura', 'vrindavan', 'fatehpur sikri',
+  'dehradun', 'almora', 'jim corbett', 'auli', 'kedarnath', 'badrinath',
+  'diu', 'daman', 'dwarka', 'somnath', 'kutch', 'rann of kutch',
+  'lonavala', 'mahabaleshwar', 'shirdi', 'nashik', 'aurangabad',
+  'ajanta', 'ellora', 'elephanta', 'alibag', 'matheran'
+];
 
 // NLP Service for intent detection, entity extraction, and sentiment analysis
 class NLPService {
@@ -25,30 +64,45 @@ class NLPService {
     }
   }
 
+  // Correct and normalize user input
+  correctInput(text: string): { corrected: string; normalized: ReturnType<typeof normalizeQuery> } {
+    const corrected = correctQuery(text);
+    const normalized = normalizeQuery(text);
+    return { corrected, normalized };
+  }
+
   // Intent detection using pattern matching + NLP enhancement
   async detectIntent(text: string): Promise<{
     intent: string;
     confidence: number;
     entities: { type: string; value: string }[];
+    days: number | null;
   }> {
-    const lowerText = text.toLowerCase();
+    // First correct the text
+    const { corrected, normalized } = this.correctInput(text);
+    const lowerText = corrected;
     
     // Intent patterns with confidence scores
     const intentPatterns = [
-      { pattern: /\b(hello|hi|hey|namaste)\b/, intent: 'greeting', confidence: 0.95 },
+      { pattern: /\b(hello|hi|hey|namaste|hola)\b/, intent: 'greeting', confidence: 0.95 },
       { pattern: /\b(help|what can you do|capabilities)\b/, intent: 'help', confidence: 0.9 },
-      { pattern: /\b(plan|trip|travel|from .* to|journey)\b/, intent: 'trip_planning', confidence: 0.85 },
+      { pattern: /\b(itinerary|iti|itin|plan.*day|(\d+)\s*day|trip.*(\d+)|tour\s*plan)\b/i, intent: 'itinerary', confidence: 0.9 },
+      { pattern: /\b(plan|trip|travel|from .* to|journey|route)\b/, intent: 'trip_planning', confidence: 0.85 },
       { pattern: /\b(weather|climate|temperature|season)\b/, intent: 'weather_query', confidence: 0.85 },
-      { pattern: /\b(food|eat|cuisine|dish|restaurant)\b/, intent: 'food_query', confidence: 0.85 },
-      { pattern: /\b(attraction|visit|see|place|tourist|sightseeing)\b/, intent: 'attraction_query', confidence: 0.85 },
-      { pattern: /\b(culture|tradition|heritage|festival)\b/, intent: 'culture_query', confidence: 0.85 },
-      { pattern: /\b(tell me about|about|information|what is)\b/, intent: 'location_info', confidence: 0.8 },
-      { pattern: /\b(best time|when to visit|when should)\b/, intent: 'timing_query', confidence: 0.85 },
-      { pattern: /\b(itinerary|plan|days|schedule)\b/, intent: 'itinerary_query', confidence: 0.85 },
+      { pattern: /\b(food|eat|cuisine|dish|restaurant|famous food|must try|local food)\b/, intent: 'food_query', confidence: 0.88 },
+      { pattern: /\b(attraction|visit|see|place|tourist|sightseeing|things to do|places to visit)\b/, intent: 'attraction_query', confidence: 0.88 },
+      { pattern: /\b(culture|tradition|heritage|festival|dance|art|music)\b/, intent: 'culture_query', confidence: 0.85 },
+      { pattern: /\b(history|historical|ancient|old|past|origin)\b/, intent: 'history_query', confidence: 0.85 },
+      { pattern: /\b(hotel|stay|accommodation|resort|where to stay|lodging)\b/, intent: 'hotel_query', confidence: 0.85 },
+      { pattern: /\b(cost|budget|expense|price|fare|cheap|affordable|money)\b/, intent: 'cost_query', confidence: 0.85 },
+      { pattern: /\b(tell me about|about|information|what is|know about|describe)\b/, intent: 'location_info', confidence: 0.8 },
+      { pattern: /\b(best time|when to visit|when should|ideal time|right time)\b/, intent: 'timing_query', confidence: 0.88 },
+      { pattern: /\b(tips|advice|suggestion|recommend|should i|guide)\b/, intent: 'tips_query', confidence: 0.85 },
+      { pattern: /\b(thank|thanks|bye|goodbye|ok|okay)\b/, intent: 'closing', confidence: 0.9 },
     ];
 
     // Find matching intent
-    let detectedIntent = 'general_query';
+    let detectedIntent = normalized.intent || 'general_query';
     let confidence = 0.5;
     
     for (const { pattern, intent, confidence: conf } of intentPatterns) {
@@ -60,9 +114,10 @@ class NLPService {
     }
 
     // Extract entities (locations, numbers, etc.)
-    const entities = this.extractEntities(text);
+    const entities = this.extractEntities(corrected);
+    const days = normalized.days || extractDays(text);
 
-    return { intent: detectedIntent, confidence, entities };
+    return { intent: detectedIntent, confidence, entities, days };
   }
 
   // Entity extraction for locations, numbers, dates
@@ -70,22 +125,15 @@ class NLPService {
     const entities: { type: string; value: string }[] = [];
     const lowerText = text.toLowerCase();
 
-    // Extract location entities (common Indian cities/states)
-    const locations = [
-      'mumbai', 'delhi', 'bangalore', 'chennai', 'kolkata', 'hyderabad', 
-      'pune', 'ahmedabad', 'jaipur', 'kochi', 'goa', 'kerala', 'rajasthan',
-      'maharashtra', 'karnataka', 'tamil nadu', 'west bengal', 'telangana',
-      'gujarat', 'kashmir', 'ladakh', 'sikkim', 'meghalaya', 'assam'
-    ];
-
-    locations.forEach(location => {
+    // Extract location entities
+    allLocations.forEach(location => {
       if (lowerText.includes(location)) {
         entities.push({ type: 'LOCATION', value: location });
       }
     });
 
     // Extract numbers (days, prices, etc.)
-    const numberMatch = text.match(/\b(\d+)\s*(day|days|rupee|rupees|rs|₹)?\b/gi);
+    const numberMatch = text.match(/\b(\d+)\s*(day|days|night|nights|rupee|rupees|rs|₹|hr|hours|hour)?\b/gi);
     if (numberMatch) {
       numberMatch.forEach(match => {
         entities.push({ type: 'NUMBER', value: match });
@@ -175,6 +223,8 @@ class NLPService {
     confidence: number;
     entities: { type: string; value: string }[];
     sentiment: { label: string; score: number };
+    days: number | null;
+    correctedQuery: string;
     context: {
       isFollowUp: boolean;
       contextualEntities: string[];
@@ -186,6 +236,9 @@ class NLPService {
       await this.initialize();
     }
 
+    // Correct the input first
+    const { corrected } = this.correctInput(text);
+
     // Run NLP analysis in parallel
     const [intentData, sentiment, context] = await Promise.all([
       this.detectIntent(text),
@@ -194,9 +247,12 @@ class NLPService {
     ]);
 
     console.log('NLP Analysis:', {
+      original: text,
+      corrected,
       intent: intentData.intent,
       confidence: intentData.confidence,
       entities: intentData.entities,
+      days: intentData.days,
       sentiment,
       context
     });
@@ -204,6 +260,7 @@ class NLPService {
     return {
       ...intentData,
       sentiment,
+      correctedQuery: corrected,
       context
     };
   }

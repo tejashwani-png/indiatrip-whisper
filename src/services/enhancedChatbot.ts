@@ -1,5 +1,9 @@
 import { nlpService } from './nlpService';
 import { getChatbotResponse } from '../data/travelData';
+import { generateItinerary, getTravelTips } from './itineraryGenerator';
+import { getDestinationInfo } from '../data/metroDestinations';
+import { allIndianStates } from '../data/allStatesData';
+import { correctLocation } from './grammarCorrection';
 
 // Enhanced chatbot response with NLP integration
 export async function getEnhancedChatbotResponse(
@@ -17,55 +21,93 @@ export async function getEnhancedChatbotResponse(
 }> {
   // Process message through NLP pipeline
   const nlpAnalysis = await nlpService.processMessage(query, conversationHistory);
-
-  // Enhance query with contextual information if it's a follow-up
-  let enhancedQuery = query;
-  if (nlpAnalysis.context.isFollowUp && nlpAnalysis.context.contextualEntities.length > 0) {
-    // If query is vague like "tell me more" or "what about food there"
-    const vaguePatterns = /^(tell me more|what about|how about|and|also)/i;
-    if (vaguePatterns.test(query.trim())) {
-      // Add context from previous location
-      const lastLocation = nlpAnalysis.context.contextualEntities[0];
-      enhancedQuery = query.replace(
-        /(tell me more|what about|how about)/i,
-        `$1 ${lastLocation}`
-      );
-    }
-  }
-
-  // Handle ambiguous queries with sentiment awareness
-  let baseResponse = getChatbotResponse(enhancedQuery);
-
-  // Add sentiment-aware responses
-  if (nlpAnalysis.sentiment.label === 'NEGATIVE' && nlpAnalysis.sentiment.score > 0.7) {
-    if (baseResponse.includes('🤔')) {
-      baseResponse = baseResponse.replace('🤔', '😊') + '\n\n💡 I noticed you might be frustrated. Let me help you better! Try asking about specific places like "Tell me about Mumbai" or "Plan trip from Delhi to Goa".';
-    }
-  }
-
-  // Add intent-specific enhancements
-  if (nlpAnalysis.intent === 'greeting' && conversationHistory.length > 2) {
-    baseResponse = `👋 Welcome back! How can I assist you with your India travel plans today?\n\nYou can ask me about any state, city, attractions, food, or plan trips between cities!`;
-  }
-
-  // Add context awareness note if follow-up
-  if (nlpAnalysis.context.isFollowUp && nlpAnalysis.context.suggestedContext) {
-    baseResponse = `📍 ${nlpAnalysis.context.suggestedContext}\n\n` + baseResponse;
-  }
-
-  // Add entity extraction hints if entities found but query unclear
-  if (nlpAnalysis.entities.length > 0 && nlpAnalysis.confidence < 0.7) {
-    const locations = nlpAnalysis.entities
-      .filter(e => e.type === 'LOCATION')
-      .map(e => e.value);
+  const correctedQuery = nlpAnalysis.correctedQuery;
+  
+  // Extract location from entities
+  const locationEntity = nlpAnalysis.entities.find(e => e.type === 'LOCATION');
+  const location = locationEntity?.value || '';
+  const correctedLocation = correctLocation(location);
+  
+  let response = '';
+  
+  // Handle itinerary requests
+  if (nlpAnalysis.intent === 'itinerary' && location) {
+    const days = nlpAnalysis.days || 2;
+    const itinerary = generateItinerary(correctedLocation, days);
     
-    if (locations.length > 0) {
-      baseResponse += `\n\n💡 I detected you mentioned: ${locations.join(', ')}. Feel free to ask specific questions about these places!`;
+    if (itinerary) {
+      const tips = getTravelTips(correctedLocation);
+      response = `📅 **${days}-Day ${correctedLocation.charAt(0).toUpperCase() + correctedLocation.slice(1)} Itinerary**\n\n${itinerary}${tips}`;
+    } else {
+      // Fallback to state data
+      const stateData = allIndianStates[correctedLocation];
+      if (stateData) {
+        response = `📅 **${days}-Day ${stateData.name} Plan**\n\n`;
+        response += stateData.itinerary.slice(0, days).join('\n\n');
+        response += `\n\n🍛 **Must-try:** ${stateData.food.slice(0, 4).join(', ')}`;
+        response += `\n🌤️ **Best Time:** ${stateData.bestTime}`;
+      }
     }
+  }
+  
+  // Handle location info requests for metro cities
+  if (!response && location) {
+    const destInfo = getDestinationInfo(correctedLocation);
+    
+    if (destInfo) {
+      if (nlpAnalysis.intent === 'food_query') {
+        response = `🍛 **${destInfo.name} Cuisine:**\n\n${destInfo.food.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\n${destInfo.culture.split('.')[0]}.`;
+      } else if (nlpAnalysis.intent === 'attraction_query') {
+        response = `🏛️ **Top Attractions in ${destInfo.name}:**\n\n${destInfo.attractions.map((a, i) => `${i + 1}. ${a}`).join('\n')}\n\n🌤️ **Best Time:** ${destInfo.bestTime}`;
+      } else if (nlpAnalysis.intent === 'culture_query' || nlpAnalysis.intent === 'history_query') {
+        response = `🎭 **${destInfo.name} - Culture & History:**\n\n${destInfo.culture}\n\n📜 **History:** ${destInfo.history}`;
+      } else if (nlpAnalysis.intent === 'timing_query') {
+        response = `🌤️ **Best Time to Visit ${destInfo.name}:**\n\n${destInfo.bestTime}\n\n💡 **Tips:**\n${destInfo.tips.map(t => `• ${t}`).join('\n')}`;
+      } else if (nlpAnalysis.intent === 'tips_query') {
+        response = `💡 **Travel Tips for ${destInfo.name}:**\n\n${destInfo.tips.map(t => `• ${t}`).join('\n')}\n\n🌤️ **Best Time:** ${destInfo.bestTime}`;
+      } else {
+        // General info
+        response = `✨ **${destInfo.name}**\n\n${destInfo.overview}\n\n🏛️ **Top Attractions:**\n${destInfo.attractions.slice(0, 5).map((a, i) => `${i + 1}. ${a}`).join('\n')}\n\n🍛 **Famous Food:** ${destInfo.food.slice(0, 5).join(', ')}\n\n🌤️ **Best Time:** ${destInfo.bestTime}\n\n💡 Ask me about specific attractions, food, culture, or plan an itinerary!`;
+      }
+    }
+  }
+  
+  // Fallback to original getChatbotResponse
+  if (!response) {
+    response = getChatbotResponse(correctedQuery || query);
+  }
+  
+  // Handle greetings
+  if (nlpAnalysis.intent === 'greeting') {
+    response = "🙏 Namaste! I'm **BharatExplore Bot** - your AI pathfinder for India.\n\nI can help you with:\n• Travel itineraries (e.g., 'Plan 2 day trip to Odisha')\n• City/State information\n• Food & cuisine recommendations\n• Attractions & places to visit\n• Culture, history & festivals\n• Best time to visit\n• Travel tips\n\nJust ask naturally - I understand grammar variations and spelling mistakes too! 😊";
+  }
+  
+  // Handle closing
+  if (nlpAnalysis.intent === 'closing') {
+    response = "🙏 Thank you for exploring India with me! Have a wonderful journey. Feel free to come back anytime for travel assistance!";
+  }
+  
+  // Add sentiment-aware touch for frustrated users
+  if (nlpAnalysis.sentiment.label === 'NEGATIVE' && nlpAnalysis.sentiment.score > 0.7) {
+    if (response.includes('🤔')) {
+      response = response.replace('🤔', '😊');
+      response += '\n\n💡 Let me help you better! Try asking:\n• "Plan 2 day trip to Kerala"\n• "Tell me about Jaipur"\n• "Best food in Goa"';
+    }
+  }
+  
+  // Add context awareness for follow-ups
+  if (nlpAnalysis.context.isFollowUp && nlpAnalysis.context.suggestedContext) {
+    response = `📍 ${nlpAnalysis.context.suggestedContext}\n\n` + response;
   }
 
   return {
-    response: baseResponse,
-    nlpMetadata: nlpAnalysis
+    response,
+    nlpMetadata: {
+      intent: nlpAnalysis.intent,
+      confidence: nlpAnalysis.confidence,
+      entities: nlpAnalysis.entities,
+      sentiment: nlpAnalysis.sentiment,
+      context: nlpAnalysis.context
+    }
   };
 }

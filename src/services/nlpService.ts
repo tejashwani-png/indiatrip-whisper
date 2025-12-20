@@ -1,8 +1,10 @@
 import { pipeline } from '@huggingface/transformers';
 import { correctQuery, normalizeQuery, extractDays } from './grammarCorrection';
 
+import { getAllLocationNames } from '../data/allDistrictsData';
+
 // Comprehensive list of Indian locations for entity extraction
-const allLocations = [
+const baseLocations = [
   // Metro cities
   'mumbai', 'delhi', 'bangalore', 'bengaluru', 'chennai', 'kolkata', 'hyderabad', 
   'pune', 'ahmedabad', 'jaipur', 'kochi', 'surat',
@@ -16,7 +18,7 @@ const allLocations = [
   // Union Territories
   'jammu and kashmir', 'kashmir', 'ladakh', 'puducherry', 'pondicherry',
   'andaman and nicobar', 'andaman', 'lakshadweep', 'chandigarh',
-  // Popular destinations
+  // Popular destinations - expanded list
   'manali', 'shimla', 'rishikesh', 'haridwar', 'varanasi', 'agra', 
   'udaipur', 'jodhpur', 'jaisalmer', 'darjeeling', 'gangtok', 
   'munnar', 'alleppey', 'ooty', 'kodaikanal', 'mysore', 'hampi',
@@ -27,17 +29,30 @@ const allLocations = [
   'srinagar', 'gulmarg', 'pahalgam', 'sonmarg',
   'visakhapatnam', 'vizag', 'tirupati', 'madurai', 'trichy',
   'rameswaram', 'kanyakumari', 'coimbatore', 'thanjavur',
-  'pondicherry', 'mahabalipuram', 'chidambaram',
+  'mahabalipuram', 'chidambaram',
   'guwahati', 'kaziranga', 'shillong', 'cherrapunji', 'tawang',
-  'aizawl', 'imphal', 'kohima', 'agartala',
+  'aizawl', 'imphal', 'kohima', 'agartala', 'dimapur',
   'ranchi', 'jamshedpur', 'patna', 'raipur', 'bhopal', 'indore',
-  'gwalior', 'ujjain', 'sanchi', 'orchha', 'pachmarhi',
-  'lucknow', 'ayodhya', 'mathura', 'vrindavan', 'fatehpur sikri',
+  'gwalior', 'ujjain', 'sanchi', 'orchha', 'pachmarhi', 'mandu',
+  'lucknow', 'ayodhya', 'mathura', 'vrindavan', 'fatehpur sikri', 'prayagraj',
   'dehradun', 'almora', 'jim corbett', 'auli', 'kedarnath', 'badrinath',
-  'diu', 'daman', 'dwarka', 'somnath', 'kutch', 'rann of kutch',
-  'lonavala', 'mahabaleshwar', 'shirdi', 'nashik', 'aurangabad',
-  'ajanta', 'ellora', 'elephanta', 'alibag', 'matheran'
+  'diu', 'daman', 'dwarka', 'somnath', 'kutch', 'rann of kutch', 'gir',
+  'lonavala', 'mahabaleshwar', 'shirdi', 'nashik', 'aurangabad', 'kolhapur',
+  'ajanta', 'ellora', 'elephanta', 'alibag', 'matheran', 'margao',
+  'north goa', 'south goa', 'old goa', 'panaji',
+  'havelock', 'neil island', 'port blair', 'nubra', 'pangong lake',
+  'dawki', 'mawlynnong', 'loktak', 'ziro', 'tawang',
+  'bikaner', 'ranthambore', 'kanha', 'bandhavgarh', 'sundarbans',
+  'chettinad', 'thekkady', 'kozhikode', 'thrissur', 'wayanad',
+  'pelling', 'lachung', 'nathula', 'kalimpong', 'siliguri', 'digha',
+  'kurukshetra', 'gurgaon', 'faridabad', 'dalhousie', 'kullu',
+  'jagdalpur', 'bilaspur', 'vijayawada', 'guntur', 'kurnool', 'nellore',
+  'jorhat', 'silchar', 'dibrugarh', 'nalanda', 'rajgir', 'vaishali',
+  'warangal', 'madurai', 'tiruchirappalli', 'thanjavur'
 ];
+
+// Merge with all locations from district data
+const allLocations = [...new Set([...baseLocations, ...getAllLocationNames()])];
 
 // NLP Service for intent detection, entity extraction, and sentiment analysis
 class NLPService {

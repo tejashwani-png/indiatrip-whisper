@@ -1,16 +1,71 @@
 import { nlpService } from './nlpService';
 import { getChatbotResponse } from '../data/travelData';
-import { generateItinerary, getTravelTips } from './itineraryGenerator';
+import { generateItinerary, getTravelTips, generateMultiDestinationItinerary, generateDynamicItinerary } from './itineraryGenerator';
 import { getDestinationInfo } from '../data/metroDestinations';
 import { allIndianStates } from '../data/allStatesData';
-import { getLocationData, searchLocations } from '../data/allDistrictsData';
-import { correctLocation } from './grammarCorrection';
+import { getLocationData, searchLocations, getAllLocationNames, getLocationsByState } from '../data/allDistrictsData';
+import { correctLocation, extractMultipleLocations } from './grammarCorrection';
 
 // Format location name properly
 function formatLocationName(name: string): string {
   return name.split(' ').map(word => 
     word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
   ).join(' ');
+}
+
+// Get comprehensive info about any location
+function getAnyLocationInfo(location: string): any {
+  const loc = correctLocation(location.toLowerCase().trim());
+  
+  // Check district data first (most comprehensive)
+  const districtData = getLocationData(loc);
+  if (districtData) return { ...districtData, source: 'district' };
+  
+  // Check metro destinations
+  const metroData = getDestinationInfo(loc);
+  if (metroData) return { ...metroData, source: 'metro' };
+  
+  // Check state data
+  const stateData = allIndianStates[loc];
+  if (stateData) return { ...stateData, source: 'state' };
+  
+  return null;
+}
+
+// Generate response for any location query
+function generateLocationResponse(locationData: any, intent: string): string {
+  const name = locationData.name || 'This destination';
+  
+  switch (intent) {
+    case 'food_query':
+      return `🍛 **${name} Cuisine:**\n\n${locationData.food?.map((f: string, i: number) => `${i + 1}. ${f}`).join('\n') || 'Local specialties available'}\n\n${locationData.culture?.split('.')[0] || ''}.`;
+    
+    case 'attraction_query':
+      return `🏛️ **Top Attractions in ${name}:**\n\n${locationData.attractions?.map((a: string, i: number) => `${i + 1}. ${a}`).join('\n') || 'Many local attractions'}\n\n🌤️ **Best Time:** ${locationData.bestTime || 'Year-round'}`;
+    
+    case 'culture_query':
+    case 'history_query':
+      return `🎭 **${name} - Culture & Heritage:**\n\n${locationData.culture || locationData.overview || 'Rich cultural heritage'}\n\n📍 **State:** ${locationData.state || 'India'}`;
+    
+    case 'timing_query':
+      return `🌤️ **Best Time to Visit ${name}:**\n\n${locationData.bestTime || 'October to March'}\n\n💡 **Tips:**\n${locationData.tips?.map((t: string) => `• ${t}`).join('\n') || '• Plan ahead for best experience'}`;
+    
+    case 'tips_query':
+      return `💡 **Travel Tips for ${name}:**\n\n${locationData.tips?.map((t: string) => `• ${t}`).join('\n') || '• Carry essentials\n• Book accommodation in advance'}\n\n🌤️ **Best Time:** ${locationData.bestTime || 'October to March'}`;
+    
+    case 'district_query':
+      if (locationData.source === 'state' && locationData.name) {
+        const districts = getLocationsByState(locationData.name);
+        if (districts.length > 0) {
+          return `📍 **Districts/Cities in ${name}:**\n\n${districts.slice(0, 15).map((d, i) => `${i + 1}. ${d.name}`).join('\n')}\n\n${districts.length > 15 ? `...and ${districts.length - 15} more!` : ''}\n\nAsk me about any specific district for detailed info!`;
+        }
+      }
+      // Fall through to general info
+    
+    default:
+      // General comprehensive info
+      return `✨ **${name}**\n📍 ${locationData.state || (locationData.capital ? `Capital: ${locationData.capital}` : 'India')}\n\n${locationData.overview || locationData.culture || ''}\n\n🏛️ **Top Attractions:**\n${locationData.attractions?.slice(0, 5).map((a: string, i: number) => `${i + 1}. ${a}`).join('\n') || 'Many attractions to explore'}\n\n🍛 **Famous Food:** ${locationData.food?.slice(0, 5).join(', ') || 'Local delicacies'}\n\n🌤️ **Best Time:** ${locationData.bestTime || 'October to March'}\n\n💡 Ask me about attractions, food, culture, or plan an itinerary!`;
+  }
 }
 
 // Enhanced chatbot response with NLP integration
@@ -31,6 +86,9 @@ export async function getEnhancedChatbotResponse(
   const nlpAnalysis = await nlpService.processMessage(query, conversationHistory);
   const correctedQuery = nlpAnalysis.correctedQuery;
   
+  // Extract all locations from query (for multi-destination)
+  const multipleLocations = extractMultipleLocations(correctedQuery);
+  
   // Extract location from entities
   const locationEntity = nlpAnalysis.entities.find(e => e.type === 'LOCATION');
   const location = locationEntity?.value || '';
@@ -38,154 +96,158 @@ export async function getEnhancedChatbotResponse(
   
   let response = '';
   
-  // Handle itinerary requests
-  if (nlpAnalysis.intent === 'itinerary' && location) {
+  // ========================================
+  // TRAVEL COST BETWEEN TWO PLACES - DO NOT MODIFY
+  // This uses the existing getChatbotResponse from travelData.ts
+  // ========================================
+  const hasTravelCostIntent = 
+    (correctedQuery.includes('from') && correctedQuery.includes('to')) ||
+    (correctedQuery.includes('cost') && correctedQuery.includes('travel')) ||
+    (correctedQuery.includes('fare') || correctedQuery.includes('ticket')) ||
+    (correctedQuery.includes('bus') || correctedQuery.includes('train') || correctedQuery.includes('flight'));
+  
+  if (hasTravelCostIntent && nlpAnalysis.entities.some(e => e.type === 'SOURCE') && nlpAnalysis.entities.some(e => e.type === 'DESTINATION')) {
+    // Use existing travel cost feature - DO NOT MODIFY
+    const existingResponse = getChatbotResponse(query);
+    if (existingResponse && !existingResponse.includes('🤔')) {
+      return {
+        response: existingResponse,
+        nlpMetadata: {
+          intent: 'travel_cost',
+          confidence: nlpAnalysis.confidence,
+          entities: nlpAnalysis.entities,
+          sentiment: nlpAnalysis.sentiment,
+          context: nlpAnalysis.context
+        }
+      };
+    }
+  }
+  
+  // ========================================
+  // MULTI-DESTINATION ITINERARY (e.g., "10 day trip to goa rajasthan and manali")
+  // ========================================
+  if (multipleLocations.length >= 2 && nlpAnalysis.days) {
+    const days = nlpAnalysis.days;
+    const itinerary = generateMultiDestinationItinerary(multipleLocations, days);
+    if (itinerary) {
+      response = `📅 **${days}-Day Multi-Destination Itinerary**\n📍 Covering: ${multipleLocations.map(formatLocationName).join(' → ')}\n\n${itinerary}`;
+    }
+  }
+  
+  // ========================================
+  // SINGLE DESTINATION ITINERARY (e.g., "plan 2 day trip to mumbai")
+  // ========================================
+  if (!response && (nlpAnalysis.intent === 'itinerary' || nlpAnalysis.intent === 'trip_planning') && location) {
     const days = nlpAnalysis.days || 2;
-    const itinerary = generateItinerary(correctedLocation, days);
+    
+    // Try detailed itinerary first
+    let itinerary = generateItinerary(correctedLocation, days);
+    
+    if (!itinerary) {
+      // Try dynamic generation from location data
+      itinerary = generateDynamicItinerary(correctedLocation, days);
+    }
     
     if (itinerary) {
       const tips = getTravelTips(correctedLocation);
       response = `📅 **${days}-Day ${formatLocationName(correctedLocation)} Itinerary**\n\n${itinerary}${tips}`;
     } else {
-      // Try district/city data
-      const locData = getLocationData(correctedLocation);
+      // Fallback: generate from any available location data
+      const locData = getAnyLocationInfo(correctedLocation);
       if (locData) {
         response = `📅 **${days}-Day ${locData.name} Itinerary**\n\n`;
-        response += `**Day 1:**\n`;
-        locData.attractions.slice(0, 3).forEach((a, i) => {
-          response += `• ${['Morning', 'Afternoon', 'Evening'][i]}: ${a}\n`;
-        });
-        if (days >= 2 && locData.attractions.length > 3) {
-          response += `\n**Day 2:**\n`;
-          locData.attractions.slice(3, 6).forEach((a, i) => {
-            response += `• ${['Morning', 'Afternoon', 'Evening'][i]}: ${a}\n`;
-          });
+        
+        const attractions = locData.attractions || [];
+        const attractionsPerDay = Math.ceil(attractions.length / days);
+        
+        for (let d = 1; d <= days; d++) {
+          response += `**Day ${d}:**\n`;
+          const startIdx = (d - 1) * attractionsPerDay;
+          const dayAttractions = attractions.slice(startIdx, startIdx + attractionsPerDay);
+          
+          if (dayAttractions.length >= 1) response += `• Morning: ${dayAttractions[0]}\n`;
+          if (dayAttractions.length >= 2) response += `• Afternoon: ${dayAttractions[1]}\n`;
+          if (dayAttractions.length >= 3) response += `• Evening: ${dayAttractions[2]}\n`;
+          if (dayAttractions.length === 0) response += `• Explore local markets and culture\n`;
+          response += '\n';
         }
-        response += `\n🍛 **Must-try Food:** ${locData.food.join(', ')}`;
-        response += `\n🌤️ **Best Time:** ${locData.bestTime}`;
-        response += `\n\n💡 **Tips:**\n${locData.tips.map(t => `• ${t}`).join('\n')}`;
-      } else {
-        // Fallback to state data
-        const stateData = allIndianStates[correctedLocation];
-        if (stateData) {
-          response = `📅 **${days}-Day ${stateData.name} Plan**\n\n`;
-          response += stateData.itinerary.slice(0, days).join('\n\n');
-          response += `\n\n🍛 **Must-try:** ${stateData.food.slice(0, 4).join(', ')}`;
-          response += `\n🌤️ **Best Time:** ${stateData.bestTime}`;
+        
+        response += `🍛 **Must-try Food:** ${locData.food?.slice(0, 4).join(', ') || 'Local specialties'}`;
+        response += `\n🌤️ **Best Time:** ${locData.bestTime || 'October to March'}`;
+        if (locData.tips) {
+          response += `\n\n💡 **Tips:**\n${locData.tips.slice(0, 3).map((t: string) => `• ${t}`).join('\n')}`;
         }
       }
     }
   }
   
-  // Handle location info requests - check all data sources
+  // ========================================
+  // DISTRICT QUERY (e.g., "districts in tamil nadu")
+  // ========================================
+  if (!response && (correctedQuery.includes('district') || correctedQuery.includes('cities in') || correctedQuery.includes('towns in'))) {
+    const locData = getAnyLocationInfo(correctedLocation);
+    if (locData) {
+      response = generateLocationResponse(locData, 'district_query');
+    }
+  }
+  
+  // ========================================
+  // LOCATION INFO QUERIES (food, attractions, culture, etc.)
+  // ========================================
   if (!response && location) {
-    // First check metro destinations (detailed data)
-    const destInfo = getDestinationInfo(correctedLocation);
+    const locData = getAnyLocationInfo(correctedLocation);
     
-    if (destInfo) {
-      if (nlpAnalysis.intent === 'food_query') {
-        response = `🍛 **${destInfo.name} Cuisine:**\n\n${destInfo.food.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\n${destInfo.culture.split('.')[0]}.`;
-      } else if (nlpAnalysis.intent === 'attraction_query') {
-        response = `🏛️ **Top Attractions in ${destInfo.name}:**\n\n${destInfo.attractions.map((a, i) => `${i + 1}. ${a}`).join('\n')}\n\n🌤️ **Best Time:** ${destInfo.bestTime}`;
-      } else if (nlpAnalysis.intent === 'culture_query' || nlpAnalysis.intent === 'history_query') {
-        response = `🎭 **${destInfo.name} - Culture & History:**\n\n${destInfo.culture}\n\n📜 **History:** ${destInfo.history}`;
-      } else if (nlpAnalysis.intent === 'timing_query') {
-        response = `🌤️ **Best Time to Visit ${destInfo.name}:**\n\n${destInfo.bestTime}\n\n💡 **Tips:**\n${destInfo.tips.map(t => `• ${t}`).join('\n')}`;
-      } else if (nlpAnalysis.intent === 'tips_query') {
-        response = `💡 **Travel Tips for ${destInfo.name}:**\n\n${destInfo.tips.map(t => `• ${t}`).join('\n')}\n\n🌤️ **Best Time:** ${destInfo.bestTime}`;
-      } else {
-        // General info
-        response = `✨ **${destInfo.name}**\n\n${destInfo.overview}\n\n🏛️ **Top Attractions:**\n${destInfo.attractions.slice(0, 5).map((a, i) => `${i + 1}. ${a}`).join('\n')}\n\n🍛 **Famous Food:** ${destInfo.food.slice(0, 5).join(', ')}\n\n🌤️ **Best Time:** ${destInfo.bestTime}\n\n💡 Ask me about specific attractions, food, culture, or plan an itinerary!`;
-      }
-    } else {
-      // Check district/city data
-      const locData = getLocationData(correctedLocation);
-      
-      if (locData) {
-        if (nlpAnalysis.intent === 'food_query') {
-          response = `🍛 **${locData.name} Cuisine:**\n\n${locData.food.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\n${locData.culture.split('.')[0]}.`;
-        } else if (nlpAnalysis.intent === 'attraction_query') {
-          response = `🏛️ **Top Attractions in ${locData.name}:**\n\n${locData.attractions.map((a, i) => `${i + 1}. ${a}`).join('\n')}\n\n🌤️ **Best Time:** ${locData.bestTime}`;
-        } else if (nlpAnalysis.intent === 'culture_query' || nlpAnalysis.intent === 'history_query') {
-          response = `🎭 **${locData.name} - Culture & Heritage:**\n\n${locData.culture}\n\n📍 **State:** ${locData.state}`;
-        } else if (nlpAnalysis.intent === 'timing_query') {
-          response = `🌤️ **Best Time to Visit ${locData.name}:**\n\n${locData.bestTime}\n\n💡 **Tips:**\n${locData.tips.map(t => `• ${t}`).join('\n')}`;
-        } else if (nlpAnalysis.intent === 'tips_query') {
-          response = `💡 **Travel Tips for ${locData.name}:**\n\n${locData.tips.map(t => `• ${t}`).join('\n')}\n\n🌤️ **Best Time:** ${locData.bestTime}`;
-        } else {
-          // General info for any location
-          response = `✨ **${locData.name}**\n📍 ${locData.state}\n\n${locData.culture}\n\n🏛️ **Top Attractions:**\n${locData.attractions.map((a, i) => `${i + 1}. ${a}`).join('\n')}\n\n🍛 **Famous Food:** ${locData.food.join(', ')}\n\n🌤️ **Best Time:** ${locData.bestTime}\n\n💡 **Tips:**\n${locData.tips.map(t => `• ${t}`).join('\n')}`;
-        }
-      } else {
-        // Check state data
-        const stateData = allIndianStates[correctedLocation];
-        if (stateData) {
-          if (nlpAnalysis.intent === 'food_query') {
-            response = `🍛 **${stateData.name} Cuisine:**\n\n${stateData.food.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\n${stateData.culture.split('.')[0]}.`;
-          } else if (nlpAnalysis.intent === 'attraction_query') {
-            response = `🏛️ **Top Attractions in ${stateData.name}:**\n\n${stateData.attractions.map((a, i) => `${i + 1}. ${a}`).join('\n')}\n\n🌤️ **Best Time:** ${stateData.bestTime}`;
-          } else if (nlpAnalysis.intent === 'culture_query' || nlpAnalysis.intent === 'history_query') {
-            response = `🎭 **${stateData.name} - Culture:**\n\n${stateData.culture}`;
-          } else {
-            response = `✨ **${stateData.name}**\n📍 Capital: ${stateData.capital}\n\n${stateData.culture}\n\n🏛️ **Top Attractions:**\n${stateData.attractions.map((a, i) => `${i + 1}. ${a}`).join('\n')}\n\n🍛 **Famous Food:** ${stateData.food.join(', ')}\n\n🌤️ **Best Time:** ${stateData.bestTime}`;
-          }
-        }
-      }
-    }
-  }
-
-  // Handle trip planning between two places
-  if (!response && nlpAnalysis.intent === 'trip_planning') {
-    const sourceEntity = nlpAnalysis.entities.find(e => e.type === 'SOURCE');
-    const destEntity = nlpAnalysis.entities.find(e => e.type === 'DESTINATION');
-    
-    if (sourceEntity && destEntity) {
-      const source = correctLocation(sourceEntity.value);
-      const dest = correctLocation(destEntity.value);
-      const sourceData = getLocationData(source) || getDestinationInfo(source);
-      const destData = getLocationData(dest) || getDestinationInfo(dest);
-      
-      if (destData) {
-        response = `🚗 **Trip from ${formatLocationName(source)} to ${formatLocationName(dest)}**\n\n`;
-        response += `📍 **About ${formatLocationName(dest)}:**\n`;
-        if ('overview' in destData) {
-          response += `${destData.overview}\n\n`;
-        } else if ('culture' in destData) {
-          response += `${destData.culture}\n\n`;
-        }
-        response += `🏛️ **Must Visit:**\n${destData.attractions.slice(0, 5).map((a, i) => `${i + 1}. ${a}`).join('\n')}\n\n`;
-        response += `🍛 **Must Try:** ${destData.food.slice(0, 4).join(', ')}\n\n`;
-        response += `🌤️ **Best Time:** ${destData.bestTime}`;
-      }
+    if (locData) {
+      response = generateLocationResponse(locData, nlpAnalysis.intent);
     }
   }
   
-  // Fallback to original getChatbotResponse
+  // ========================================
+  // FALLBACK TO ORIGINAL CHATBOT RESPONSE
+  // This includes the travel cost feature - DO NOT MODIFY
+  // ========================================
   if (!response) {
     response = getChatbotResponse(correctedQuery || query);
   }
   
-  // Handle greetings
+  // ========================================
+  // SPECIAL INTENTS
+  // ========================================
+  
+  // Greeting
   if (nlpAnalysis.intent === 'greeting') {
-    response = "🙏 Namaste! I'm **BharatExplore Bot** - your AI travel guide for India.\n\nI have information on:\n• All 28 States & 8 Union Territories\n• 700+ Cities, Districts & Towns\n• Metro Cities, Hill Stations, Beaches\n• Pilgrimages, Wildlife & Adventure\n\nJust ask me:\n• \"Plan 2 day trip to Varanasi\"\n• \"Tell me about Tirupati\"\n• \"Best food in Lucknow\"\n• \"Places to visit in Meghalaya\"\n\nI understand natural language, typos, and even Hinglish! 😊";
+    response = "🙏 Namaste! I'm **BharatExplore Bot** - your AI travel guide for India.\n\n" +
+      "I can help you with:\n" +
+      "• 📅 **Itineraries:** \"Plan 5 day trip to Kerala\" or \"10 day trip to goa rajasthan manali\"\n" +
+      "• 🏛️ **Attractions:** \"Places to visit in Jaipur\"\n" +
+      "• 🍛 **Food:** \"Famous food of Hyderabad\"\n" +
+      "• 🎭 **Culture:** \"Culture of Rajasthan\"\n" +
+      "• 📍 **Districts:** \"Districts in Tamil Nadu\"\n" +
+      "• 🚗 **Travel Cost:** \"Trip from Mumbai to Goa\" (Bus/Train/Flight fares)\n\n" +
+      "I cover all 28 States, 8 UTs, and 700+ cities & towns!\n" +
+      "I understand typos and informal language too! 😊";
   }
   
-  // Handle closing
+  // Help
+  if (nlpAnalysis.intent === 'help') {
+    response = "🤝 **I can help you with:**\n\n" +
+      "📅 **Day-wise Itineraries:**\n" +
+      "• \"Plan 3 day trip to Kerala\"\n" +
+      "• \"7 day itinerary for Rajasthan\"\n" +
+      "• \"10 day trip to goa rajasthan and manali\"\n\n" +
+      "📍 **Location Information:**\n" +
+      "• \"Tell me about Varanasi\"\n" +
+      "• \"Districts in Karnataka\"\n" +
+      "• \"Food in Lucknow\"\n\n" +
+      "🚗 **Travel Between Cities:**\n" +
+      "• \"Trip from Delhi to Agra\" (with bus/train/flight costs)\n" +
+      "• \"Travel from Mumbai to Goa\"\n\n" +
+      "I understand natural language, typos, and Hinglish too!";
+  }
+  
+  // Closing
   if (nlpAnalysis.intent === 'closing') {
     response = "🙏 Thank you for exploring India with me! Have a wonderful journey. Feel free to come back anytime for travel assistance!";
-  }
-  
-  // Handle help intent
-  if (nlpAnalysis.intent === 'help') {
-    response = "🤝 **I can help you with:**\n\n";
-    response += "📅 **Itineraries:** \"Plan 3 day trip to Kerala\"\n";
-    response += "🏛️ **Attractions:** \"Places to visit in Jaipur\"\n";
-    response += "🍛 **Food:** \"Famous food of Hyderabad\"\n";
-    response += "🎭 **Culture:** \"Culture of Rajasthan\"\n";
-    response += "🌤️ **Best Time:** \"When to visit Ladakh\"\n";
-    response += "💡 **Tips:** \"Travel tips for Goa\"\n";
-    response += "🚗 **Trip Planning:** \"Trip from Delhi to Agra\"\n\n";
-    response += "I cover all Indian states, UTs, metros, and 700+ cities/towns!";
   }
   
   // Add sentiment-aware touch for frustrated users

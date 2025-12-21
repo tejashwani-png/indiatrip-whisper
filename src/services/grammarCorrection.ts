@@ -243,6 +243,55 @@ export function correctQuery(query: string): string {
   return corrected;
 }
 
+// All known location names for multi-destination extraction
+const allKnownLocations = [
+  // States
+  'kerala', 'rajasthan', 'goa', 'maharashtra', 'karnataka', 'tamil nadu',
+  'telangana', 'andhra pradesh', 'odisha', 'west bengal', 'gujarat',
+  'madhya pradesh', 'uttar pradesh', 'punjab', 'haryana', 'himachal pradesh',
+  'uttarakhand', 'jharkhand', 'chhattisgarh', 'bihar', 'assam', 'sikkim',
+  'meghalaya', 'tripura', 'mizoram', 'manipur', 'nagaland', 'arunachal pradesh',
+  'jammu and kashmir', 'ladakh',
+  // Popular cities
+  'mumbai', 'delhi', 'bangalore', 'chennai', 'kolkata', 'hyderabad', 'pune',
+  'ahmedabad', 'jaipur', 'udaipur', 'jodhpur', 'jaisalmer', 'kochi', 'goa',
+  'manali', 'shimla', 'rishikesh', 'haridwar', 'varanasi', 'agra', 'lucknow',
+  'darjeeling', 'gangtok', 'munnar', 'alleppey', 'ooty', 'kodaikanal', 'mysore',
+  'hampi', 'guwahati', 'shillong', 'leh', 'srinagar', 'amritsar', 'chandigarh',
+  'dharamshala', 'mcleodganj', 'kasol', 'pushkar', 'mount abu', 'ranthambore',
+  'khajuraho', 'orchha', 'bhopal', 'indore', 'aurangabad', 'ajanta', 'ellora',
+  'coorg', 'wayanad', 'kovalam', 'varkala', 'pondicherry', 'mahabalipuram',
+  'madurai', 'rameswaram', 'kanyakumari', 'tirupati', 'visakhapatnam',
+  'puri', 'konark', 'bhubaneswar', 'kaziranga', 'tawang', 'ziro',
+  'andaman', 'lakshadweep', 'nainital', 'mussoorie', 'jim corbett',
+  'rann of kutch', 'dwarka', 'somnath', 'diu', 'daman'
+];
+
+// Extract multiple locations from query (for multi-destination trips)
+export function extractMultipleLocations(query: string): string[] {
+  const lowerQuery = query.toLowerCase();
+  const foundLocations: string[] = [];
+  
+  // First apply corrections
+  const corrected = correctQuery(query);
+  
+  // Find all locations mentioned
+  for (const loc of allKnownLocations) {
+    if (corrected.includes(loc) && !foundLocations.includes(loc)) {
+      foundLocations.push(loc);
+    }
+  }
+  
+  // Also check corrected location spellings
+  for (const [_, correctedLoc] of Object.entries(locationSpellings)) {
+    if (corrected.includes(correctedLoc) && !foundLocations.includes(correctedLoc)) {
+      foundLocations.push(correctedLoc);
+    }
+  }
+  
+  return [...new Set(foundLocations)];
+}
+
 // Normalize query to extract intent
 export function normalizeQuery(query: string): {
   normalized: string;
@@ -253,16 +302,8 @@ export function normalizeQuery(query: string): {
   const corrected = correctQuery(query);
   const days = extractDays(corrected);
   
-  // Extract locations
-  const locations: string[] = [];
-  const allLocations = Object.values(locationSpellings);
-  const uniqueLocations = [...new Set(allLocations)];
-  
-  for (const loc of uniqueLocations) {
-    if (corrected.includes(loc)) {
-      locations.push(loc);
-    }
-  }
+  // Extract locations using the multi-location extractor
+  const locations = extractMultipleLocations(corrected);
   
   // Detect intent
   let intent = 'general';
@@ -270,7 +311,7 @@ export function normalizeQuery(query: string): {
     intent = 'itinerary';
   } else if (/food|eat|cuisine|dish|restaurant/i.test(corrected)) {
     intent = 'food';
-  } else if (/attraction|visit|see|place|tourist|sightseeing/i.test(corrected)) {
+  } else if (/attraction|visit|see|place|tourist|sightseeing|things to do/i.test(corrected)) {
     intent = 'attraction';
   } else if (/weather|climate|temperature|season|when to visit|best time/i.test(corrected)) {
     intent = 'weather';
@@ -280,6 +321,8 @@ export function normalizeQuery(query: string): {
     intent = 'hotel';
   } else if (/cost|budget|expense|price|fare/i.test(corrected)) {
     intent = 'cost';
+  } else if (/district|cities in|towns in/i.test(corrected)) {
+    intent = 'district';
   } else if (/tell me about|about|information|what is|know about/i.test(corrected)) {
     intent = 'info';
   }

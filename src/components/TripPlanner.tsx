@@ -108,36 +108,82 @@ const TripPlanner = ({ onBack }: TripPlannerProps) => {
           </CardHeader>
           <CardContent>
             <div className="grid md:grid-cols-3 gap-4">
-              <div className="space-y-2">
+              {/* Source Location */}
+              <div className="space-y-2 relative">
                 <label className="text-sm font-medium">From</label>
-                <Select value={source} onValueChange={setSource}>
-                  <SelectTrigger className="border-primary/20">
-                    <SelectValue placeholder="Select source city" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {cities.map((city) => (
-                      <SelectItem key={city.key} value={city.key} disabled={city.key === destination}>
-                        {city.name}, {city.state}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search source city..."
+                    value={sourceSearch}
+                    onChange={(e) => {
+                      setSourceSearch(e.target.value);
+                      setSource("");
+                      setShowSourceDropdown(true);
+                    }}
+                    onFocus={() => setShowSourceDropdown(true)}
+                    className="pl-10 border-primary/20"
+                  />
+                </div>
+                {showSourceDropdown && (
+                  <div className="absolute z-50 w-full mt-1 bg-background border border-border rounded-md shadow-lg max-h-60 overflow-hidden">
+                    <ScrollArea className="h-60">
+                      {filteredSourceLocations.length > 0 ? (
+                        filteredSourceLocations.map((loc) => (
+                          <button
+                            key={loc.key}
+                            onClick={() => selectSource(loc.key, `${loc.name}, ${loc.state}`)}
+                            className="w-full px-4 py-2 text-left hover:bg-accent/50 flex flex-col border-b border-border/50 last:border-0"
+                          >
+                            <span className="font-medium">{loc.name}</span>
+                            <span className="text-xs text-muted-foreground">{loc.state} • {loc.type.replace('_', ' ')}</span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-4 py-2 text-muted-foreground">No locations found</div>
+                      )}
+                    </ScrollArea>
+                  </div>
+                )}
               </div>
 
-              <div className="space-y-2">
+              {/* Destination Location */}
+              <div className="space-y-2 relative">
                 <label className="text-sm font-medium">To</label>
-                <Select value={destination} onValueChange={setDestination}>
-                  <SelectTrigger className="border-primary/20">
-                    <SelectValue placeholder="Select destination city" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {cities.map((city) => (
-                      <SelectItem key={city.key} value={city.key} disabled={city.key === source}>
-                        {city.name}, {city.state}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search destination..."
+                    value={destSearch}
+                    onChange={(e) => {
+                      setDestSearch(e.target.value);
+                      setDestination("");
+                      setShowDestDropdown(true);
+                    }}
+                    onFocus={() => setShowDestDropdown(true)}
+                    className="pl-10 border-primary/20"
+                  />
+                </div>
+                {showDestDropdown && (
+                  <div className="absolute z-50 w-full mt-1 bg-background border border-border rounded-md shadow-lg max-h-60 overflow-hidden">
+                    <ScrollArea className="h-60">
+                      {filteredDestLocations.length > 0 ? (
+                        filteredDestLocations.map((loc) => (
+                          <button
+                            key={loc.key}
+                            onClick={() => selectDestination(loc.key, `${loc.name}, ${loc.state}`)}
+                            className="w-full px-4 py-2 text-left hover:bg-accent/50 flex flex-col border-b border-border/50 last:border-0"
+                          >
+                            <span className="font-medium">{loc.name}</span>
+                            <span className="text-xs text-muted-foreground">{loc.state} • {loc.type.replace('_', ' ')}</span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-4 py-2 text-muted-foreground">No locations found</div>
+                      )}
+                    </ScrollArea>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-end">

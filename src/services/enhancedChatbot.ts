@@ -5,6 +5,7 @@ import { getDestinationInfo } from '../data/metroDestinations';
 import { allIndianStates } from '../data/allStatesData';
 import { getLocationData, searchLocations, getAllLocationNames, getLocationsByState } from '../data/allDistrictsData';
 import { correctLocation, extractMultipleLocations } from './grammarCorrection';
+import { allIndianLocations, calculateTripData, getAllLocationsForDropdown } from '../data/tripPlannerLocations';
 
 // Format location name properly
 function formatLocationName(name: string): string {
@@ -13,11 +14,53 @@ function formatLocationName(name: string): string {
   ).join(' ');
 }
 
-// Get comprehensive info about any location
+// Get trip planner data for a location
+function getTripPlannerInfo(location: string): any {
+  const locKey = location.toLowerCase().trim().replace(/\s+/g, ' ');
+  
+  // Try exact match
+  if (allIndianLocations[locKey]) {
+    return allIndianLocations[locKey];
+  }
+  
+  // Try with spaces replaced
+  const keyWithSpaces = locKey.replace(/-/g, ' ');
+  if (allIndianLocations[keyWithSpaces]) {
+    return allIndianLocations[keyWithSpaces];
+  }
+  
+  // Search through all locations
+  for (const [key, data] of Object.entries(allIndianLocations)) {
+    if (key.includes(locKey) || data.name.toLowerCase().includes(locKey)) {
+      return data;
+    }
+  }
+  
+  return null;
+}
+
+// Get comprehensive info about any location (combined from all sources)
 function getAnyLocationInfo(location: string): any {
   const loc = correctLocation(location.toLowerCase().trim());
   
-  // Check district data first (most comprehensive)
+  // Check trip planner data first (has hotels, restaurants)
+  const tripData = getTripPlannerInfo(loc);
+  if (tripData) {
+    // Merge with district data if available for attractions/culture
+    const districtData = getLocationData(loc);
+    if (districtData) {
+      return { 
+        ...districtData, 
+        ...tripData, 
+        hotels: tripData.hotels,
+        restaurants: tripData.restaurants,
+        source: 'combined' 
+      };
+    }
+    return { ...tripData, source: 'tripPlanner' };
+  }
+  
+  // Check district data (most comprehensive for attractions)
   const districtData = getLocationData(loc);
   if (districtData) return { ...districtData, source: 'district' };
   
@@ -32,13 +75,49 @@ function getAnyLocationInfo(location: string): any {
   return null;
 }
 
+// Format hotels info
+function formatHotelsInfo(hotels: any[]): string {
+  if (!hotels || hotels.length === 0) return '';
+  return hotels.map((h, i) => `${i + 1}. **${h.name}** - ${h.price}`).join('\n');
+}
+
+// Format restaurants info
+function formatRestaurantsInfo(restaurants: any[]): string {
+  if (!restaurants || restaurants.length === 0) return '';
+  return restaurants.map((r, i) => `${i + 1}. **${r.name}** (${r.type})`).join('\n');
+}
+
 // Generate response for any location query
 function generateLocationResponse(locationData: any, intent: string): string {
   const name = locationData.name || 'This destination';
   
   switch (intent) {
+    case 'hotel_query':
+    case 'accommodation_query':
+    case 'stay_query':
+      if (locationData.hotels) {
+        return `🏨 **Hotels in ${name}:**\n\n${formatHotelsInfo(locationData.hotels)}\n\n💡 Prices are approximate and may vary by season. Book in advance for best rates!`;
+      }
+      return `🏨 **Accommodation in ${name}:**\n\nVarious hotels and guesthouses available. Check online booking platforms for current prices and availability.`;
+    
+    case 'restaurant_query':
+    case 'dining_query':
+    case 'eat_query':
+      if (locationData.restaurants) {
+        return `🍽️ **Top Restaurants in ${name}:**\n\n${formatRestaurantsInfo(locationData.restaurants)}\n\n${locationData.food ? `\n🍛 **Famous Dishes:** ${locationData.food.slice(0, 5).join(', ')}` : ''}`;
+      }
+      return `🍽️ **Dining in ${name}:**\n\n${locationData.food?.map((f: string, i: number) => `${i + 1}. ${f}`).join('\n') || 'Local cuisine available at various restaurants.'}`;
+    
     case 'food_query':
-      return `🍛 **${name} Cuisine:**\n\n${locationData.food?.map((f: string, i: number) => `${i + 1}. ${f}`).join('\n') || 'Local specialties available'}\n\n${locationData.culture?.split('.')[0] || ''}.`;
+      let foodResponse = `🍛 **${name} Cuisine:**\n\n`;
+      if (locationData.food) {
+        foodResponse += locationData.food.map((f: string, i: number) => `${i + 1}. ${f}`).join('\n');
+      }
+      if (locationData.restaurants) {
+        foodResponse += `\n\n🍽️ **Where to Eat:**\n${formatRestaurantsInfo(locationData.restaurants)}`;
+      }
+      foodResponse += `\n\n${locationData.culture?.split('.')[0] || ''}.`;
+      return foodResponse;
     
     case 'attraction_query':
       return `🏛️ **Top Attractions in ${name}:**\n\n${locationData.attractions?.map((a: string, i: number) => `${i + 1}. ${a}`).join('\n') || 'Many local attractions'}\n\n🌤️ **Best Time:** ${locationData.bestTime || 'Year-round'}`;
@@ -63,8 +142,33 @@ function generateLocationResponse(locationData: any, intent: string): string {
       // Fall through to general info
     
     default:
-      // General comprehensive info
-      return `✨ **${name}**\n📍 ${locationData.state || (locationData.capital ? `Capital: ${locationData.capital}` : 'India')}\n\n${locationData.overview || locationData.culture || ''}\n\n🏛️ **Top Attractions:**\n${locationData.attractions?.slice(0, 5).map((a: string, i: number) => `${i + 1}. ${a}`).join('\n') || 'Many attractions to explore'}\n\n🍛 **Famous Food:** ${locationData.food?.slice(0, 5).join(', ') || 'Local delicacies'}\n\n🌤️ **Best Time:** ${locationData.bestTime || 'October to March'}\n\n💡 Ask me about attractions, food, culture, or plan an itinerary!`;
+      // General comprehensive info with hotels & restaurants
+      let fullResponse = `✨ **${name}**\n📍 ${locationData.state || (locationData.capital ? `Capital: ${locationData.capital}` : 'India')}\n\n`;
+      
+      if (locationData.overview || locationData.culture) {
+        fullResponse += `${locationData.overview || locationData.culture}\n\n`;
+      }
+      
+      if (locationData.attractions) {
+        fullResponse += `🏛️ **Top Attractions:**\n${locationData.attractions.slice(0, 5).map((a: string, i: number) => `${i + 1}. ${a}`).join('\n')}\n\n`;
+      }
+      
+      if (locationData.food) {
+        fullResponse += `🍛 **Famous Food:** ${locationData.food.slice(0, 5).join(', ')}\n\n`;
+      }
+      
+      if (locationData.hotels) {
+        fullResponse += `🏨 **Where to Stay:**\n${formatHotelsInfo(locationData.hotels)}\n\n`;
+      }
+      
+      if (locationData.restaurants) {
+        fullResponse += `🍽️ **Where to Eat:**\n${formatRestaurantsInfo(locationData.restaurants)}\n\n`;
+      }
+      
+      fullResponse += `🌤️ **Best Time:** ${locationData.bestTime || 'October to March'}\n\n`;
+      fullResponse += `💡 Ask me about attractions, food, hotels, restaurants, or plan an itinerary!`;
+      
+      return fullResponse;
   }
 }
 
@@ -221,10 +325,12 @@ export async function getEnhancedChatbotResponse(
       "• 📅 **Itineraries:** \"Plan 5 day trip to Kerala\" or \"10 day trip to goa rajasthan manali\"\n" +
       "• 🏛️ **Attractions:** \"Places to visit in Jaipur\"\n" +
       "• 🍛 **Food:** \"Famous food of Hyderabad\"\n" +
+      "• 🏨 **Hotels:** \"Hotels in Mumbai\" (with price ranges)\n" +
+      "• 🍽️ **Restaurants:** \"Restaurants in Delhi\"\n" +
       "• 🎭 **Culture:** \"Culture of Rajasthan\"\n" +
       "• 📍 **Districts:** \"Districts in Tamil Nadu\"\n" +
       "• 🚗 **Travel Cost:** \"Trip from Mumbai to Goa\" (Bus/Train/Flight fares)\n\n" +
-      "I cover all 28 States, 8 UTs, and 700+ cities & towns!\n" +
+      "I cover all 28 States, 8 UTs, and 400+ cities with hotels & restaurants!\n" +
       "I understand typos and informal language too! 😊";
   }
   
@@ -239,6 +345,10 @@ export async function getEnhancedChatbotResponse(
       "• \"Tell me about Varanasi\"\n" +
       "• \"Districts in Karnataka\"\n" +
       "• \"Food in Lucknow\"\n\n" +
+      "🏨 **Accommodation & Dining:**\n" +
+      "• \"Hotels in Jaipur\" (with prices)\n" +
+      "• \"Restaurants in Goa\"\n" +
+      "• \"Where to stay in Mumbai\"\n\n" +
       "🚗 **Travel Between Cities:**\n" +
       "• \"Trip from Delhi to Agra\" (with bus/train/flight costs)\n" +
       "• \"Travel from Mumbai to Goa\"\n\n" +
